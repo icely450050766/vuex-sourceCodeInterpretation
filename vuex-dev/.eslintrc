@@ -2,5 +2,12 @@
   "root": true,
   "extends": [
     "plugin:vue-libs/recommended"
-  ]
+  ],
+  "rules": {
+    "indent": 0,
+    "space-before-function-paren": 0,
+    "object-curly-spacing": 0,
+    "no-trailing-spaces": 0,
+    "padded-blocks": 0
+  }
 }
