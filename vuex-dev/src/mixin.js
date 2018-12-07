@@ -30,7 +30,7 @@ export default function (Vue) {
         // $store全局注入，子组件使用父组件的$store
         if (options.store) {
             this.$store = typeof options.store === 'function'
-                ? options.store()
+                ? options.store() // 类似vue组件的 data(){reuturn{…}}，每次子组件生成新的data数据，避免子组件多次使用，数据被污染
                 : options.store
         } else if (options.parent && options.parent.$store) {
             this.$store = options.parent.$store
