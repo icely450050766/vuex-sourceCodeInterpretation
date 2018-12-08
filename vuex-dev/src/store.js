@@ -72,6 +72,7 @@ export class Store {
         console.log(this)
     }
 
+    // this.$store.state 会调用 get方法
     get state() {
         return this._vm._data.$$state
     }
@@ -82,8 +83,9 @@ export class Store {
         }
     }
 
+    // this.$store.commit() 实际调用的方法
     commit(_type, _payload, _options) {
-        // check object-style commit
+        // 处理参数
         const {
             type,
             payload,
@@ -91,6 +93,7 @@ export class Store {
         } = unifyObjectStyle(_type, _payload, _options)
 
         const mutation = {type, payload}
+        // 找到入口函数数组
         const entry = this._mutations[type]
         if (!entry) {
             if (process.env.NODE_ENV !== 'production') {
@@ -99,6 +102,7 @@ export class Store {
             return
         }
         this._withCommit(() => {
+            // 逐个函数调用，也表明commit只能做 一瞬间的同步操作
             entry.forEach(function commitIterator(handler) {
                 handler(payload)
             })
@@ -116,8 +120,9 @@ export class Store {
         }
     }
 
+    // this.$store.dispatch() 实际调用的方法
     dispatch(_type, _payload) {
-        // check object-style dispatch
+        // 处理参数
         const {
             type,
             payload
@@ -134,6 +139,9 @@ export class Store {
 
         this._actionSubscribers.forEach(sub => sub(action, this.state))
 
+        // dispatch支持异步操作，可通过提交 mutation 来记录 action 产生的副作用（即状态变更）
+        // Promise.all支持多个action组合
+        // https://vuex.vuejs.org/zh/guide/actions.html#%E7%BB%84%E5%90%88-action
         return entry.length > 1
             ? Promise.all(entry.map(handler => handler(payload)))
             : entry[0](payload)
@@ -194,6 +202,7 @@ export class Store {
         resetStore(this, true)
     }
 
+    // 内部执行 commit 操作，执行期间 this._committing设置为true
     _withCommit(fn) {
         const committing = this._committing
         this._committing = true
@@ -226,25 +235,24 @@ function resetStore(store, hot) {
     resetStoreVM(store, state, hot)
 }
 
+// 初始化存储VM，利用计算属性，负责取得实时数据
 function resetStoreVM(store, state, hot) {
     const oldVm = store._vm
 
-    // bind store public getters
+    // 定义store.getters
     store.getters = {}
     const wrappedGetters = store._wrappedGetters
     const computed = {}
     forEachValue(wrappedGetters, (fn, key) => {
-        // use computed to leverage its lazy-caching mechanism
+        // 把每个模块里面的getters函数，作为computed属性，只要里面依赖改变，则会重新求值
         computed[key] = () => fn(store)
         Object.defineProperty(store.getters, key, {
-            get: () => store._vm[key],
+            get: () => store._vm[key], // 取的就是 _vm的computed属性
             enumerable: true // for local getters
         })
     })
 
-    // use a Vue instance to store the state tree
-    // suppress warnings just in case the user has added
-    // some funky global mixins
+    // 使用 vue实例 存储状态树
     const silent = Vue.config.silent
     Vue.config.silent = true
     store._vm = new Vue({
@@ -255,11 +263,12 @@ function resetStoreVM(store, state, hot) {
     })
     Vue.config.silent = silent
 
-    // enable strict mode for new vm
+    // 严格模式的处理
     if (store.strict) {
         enableStrictMode(store)
     }
 
+    // 销毁 旧_vm
     if (oldVm) {
         if (hot) {
             // dispatch changes in all subscribed watchers
@@ -296,7 +305,8 @@ function installModule(store, rootState, path, module, hot) {
     // 设置本模块的context属性，包含dispatch、commit、getters、state属性
     const local = module.context = makeLocalContext(store, namespace, path)
 
-    // 在this._mutations下，注册当前模块的mutation
+    // 以下是直接在store的某个属性下，注册模块函数
+    // 在store._mutations下，注册当前模块的mutation
     // 外部调用this.$store.commit(type, preload)时，就是调用this._mutations[type]的方法
     module.forEachMutation((mutation, key) => {
         const namespacedType = namespace + key
@@ -305,6 +315,14 @@ function installModule(store, rootState, path, module, hot) {
 
     // 在this._actions下，注册当前模块的action
     module.forEachAction((action, key) => {
+        // https://vuex.vuejs.org/zh/guide/modules.html#%E5%9C%A8%E5%B8%A6%E5%91%BD%E5%90%8D%E7%A9%BA%E9%97%B4%E7%9A%84%E6%A8%A1%E5%9D%97%E6%B3%A8%E5%86%8C%E5%85%A8%E5%B1%80-action
+        // 也是兼容action以下写法：
+        // actions: {
+        //     someAction: {
+        //         root: true,
+        //         handler(namespacedContext, payload){ ...} // -> 'someAction'
+        //     }
+        // }
         const type = action.root ? key : namespace + key
         const handler = action.handler || action
         registerAction(store, type, handler, local)
@@ -403,16 +421,29 @@ function makeLocalGetters(store, namespace) {
     return gettersProxy
 }
 
+// 往 store._mutations 注册 本模块的 某个mutation
 function registerMutation(store, type, handler, local) {
+    // 数组保存函数，说明可定义 同名的mutation函数
     const entry = store._mutations[type] || (store._mutations[type] = [])
+
+    // 插入新函数：主要是扩展 正处理的mutations函数，传入本模块的state参数，因此可在函数内部使用 本模块的state
     entry.push(function wrappedMutationHandler(payload) {
-        handler.call(store, local.state, payload)
+        handler.call(store, local.state, payload) // 闭包
     })
+
+    // 参考使用例子：
+    // const mutations = {
+    //     setProducts(state, products) {
+    //         state.all = products
+    //     }
+    // }
 }
 
+// 往 store._actions 注册 本模块的 某个action
 function registerAction(store, type, handler, local) {
     const entry = store._actions[type] || (store._actions[type] = [])
     entry.push(function wrappedActionHandler(payload, cb) {
+        // 传入的参数多一些
         let res = handler.call(store, {
             dispatch: local.dispatch,
             commit: local.commit,
@@ -421,6 +452,8 @@ function registerAction(store, type, handler, local) {
             rootGetters: store.getters,
             rootState: store.state
         }, payload, cb)
+
+        // 执行action函数后，返回的不是Promise，转为 Promise 对象。统一在store.dispatch之后执行Promise.all
         if (!isPromise(res)) {
             res = Promise.resolve(res)
         }
@@ -433,9 +466,18 @@ function registerAction(store, type, handler, local) {
             return res
         }
     })
+
+    // 参考使用例子：
+    // const actions = {
+    //     addProductToCart({state, commit}, product) {
+    //         commit('setCheckoutStatus', null)
+    //     }
+    // }
 }
 
+// 往 store._wrappedGetters 注册 本模块的 某个getters
 function registerGetter(store, type, rawGetter, local) {
+    // 不允许重复定义
     if (store._wrappedGetters[type]) {
         if (process.env.NODE_ENV !== 'production') {
             console.error(`[vuex] duplicate getter key: ${type}`)
@@ -452,6 +494,8 @@ function registerGetter(store, type, rawGetter, local) {
     }
 }
 
+// 严格模式下，修改state，也是能修改成功的，但是会抛出异常
+// https://cn.vuejs.org/v2/api/#vm-watch
 function enableStrictMode(store) {
     store._vm.$watch(function () {
         return this._data.$$state
