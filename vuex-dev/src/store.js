@@ -223,6 +223,7 @@ function genericSubscribe(fn, subs) {
     }
 }
 
+// 重置store
 function resetStore(store, hot) {
     store._actions = Object.create(null)
     store._mutations = Object.create(null)
@@ -235,7 +236,7 @@ function resetStore(store, hot) {
     resetStoreVM(store, state, hot)
 }
 
-// 初始化存储VM，利用计算属性，负责取得实时数据
+// 重置存储_vm，利用计算属性，负责取得实时数据
 function resetStoreVM(store, state, hot) {
     const oldVm = store._vm
 
